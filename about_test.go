@@ -3,11 +3,12 @@ package dtrack
 import (
 	"context"
 	"fmt"
+	"log"
+	"testing"
+
 	"github.com/google/uuid"
 	"github.com/testcontainers/testcontainers-go"
 	"github.com/testcontainers/testcontainers-go/wait"
-	"log"
-	"testing"
 
 	"github.com/stretchr/testify/require"
 )
@@ -29,6 +30,20 @@ func TestAboutService_Get(t *testing.T) {
 	require.NotEmpty(t, about.Framework.Version)
 	require.NotEqual(t, uuid.Nil, about.Framework.UUID)
 	require.Equal(t, "Alpine", about.Framework.Name)
+}
+
+// TestSetUpContainer_WithPostgres ensures that our testcontainer setup is able to start a
+// Dependency-Track version >= 5 with a PostgreSQL container alongside it.
+func TestSetUpContainer_WithPostgres(t *testing.T) {
+	client := setUpContainer(t, testContainerOptions{
+		Version:     "5.2.0",
+		UsePostgres: true,
+	})
+
+	about, err := client.About.Get(context.Background())
+	require.NoError(t, err)
+	require.Equal(t, "5.2.0", about.Version)
+	require.Equal(t, "Dependency-Track", about.Application)
 }
 
 type testContainerOptions struct {
