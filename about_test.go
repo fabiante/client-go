@@ -34,6 +34,7 @@ func TestAboutService_Get(t *testing.T) {
 type testContainerOptions struct {
 	Version        string
 	APIPermissions []string
+	UsePostgres    bool
 }
 
 func setUpContainer(t *testing.T, options testContainerOptions) *Client {
@@ -44,18 +45,70 @@ func setUpContainer(t *testing.T, options testContainerOptions) *Client {
 		version = options.Version
 	}
 
+	image := fmt.Sprintf("dependencytrack/apiserver:%s", version)
+	env := map[string]string{
+		"JAVA_OPTIONS":                     "-Xmx1g",
+		"SYSTEM_REQUIREMENT_CHECK_ENABLED": "false",
+	}
+	var networks []string
+	var networkAliases map[string][]string
+	var waitingFor wait.Strategy = wait.ForLog("Dependency-Track is ready")
+
+	if options.UsePostgres {
+		networkName := "dtrack-test-" + uuid.NewString()
+		network, networkErr := testcontainers.GenericNetwork(ctx, testcontainers.GenericNetworkRequest{
+			NetworkRequest: testcontainers.NetworkRequest{Name: networkName},
+		})
+		require.NoError(t, networkErr)
+		t.Cleanup(func() {
+			require.NoError(t, network.Remove(ctx))
+		})
+
+		postgres, postgresErr := testcontainers.GenericContainer(ctx, testcontainers.GenericContainerRequest{
+			ContainerRequest: testcontainers.ContainerRequest{
+				Image: "postgres:18-alpine",
+				Env: map[string]string{
+					"POSTGRES_DB":       "dtrack",
+					"POSTGRES_USER":     "dtrack",
+					"POSTGRES_PASSWORD": "dtrack",
+				},
+				ExposedPorts: []string{"5432/tcp"},
+				Networks:     []string{networkName},
+				NetworkAliases: map[string][]string{
+					networkName: {"postgres"},
+				},
+				WaitingFor: wait.ForListeningPort("5432/tcp"),
+			},
+			Started: true,
+		})
+		require.NoError(t, postgresErr)
+		t.Cleanup(func() {
+			require.NoError(t, postgres.Terminate(ctx))
+		})
+
+		networks = []string{networkName}
+		networkAliases = map[string][]string{networkName: {"apiserver"}}
+		env["DT_DATASOURCE_URL"] = "jdbc:postgresql://postgres:5432/dtrack"
+		env["DT_DATASOURCE_USERNAME"] = "dtrack"
+		env["DT_DATASOURCE_PASSWORD"] = "dtrack"
+		waitingFor = wait.ForListeningPort("8080/tcp")
+	}
+
 	container, err := testcontainers.GenericContainer(ctx, testcontainers.GenericContainerRequest{
 		ContainerRequest: testcontainers.ContainerRequest{
-			Image: fmt.Sprintf("dependencytrack/apiserver:%s", version),
-			Env: map[string]string{
-				"JAVA_OPTIONS":                     "-Xmx1g",
-				"SYSTEM_REQUIREMENT_CHECK_ENABLED": "false",
-			},
-			ExposedPorts: []string{"8080/tcp"},
-			WaitingFor:   wait.ForLog("Dependency-Track is ready"),
+			Image:          image,
+			Env:            env,
+			ExposedPorts:   []string{"8080/tcp"},
+			Networks:       networks,
+			NetworkAliases: networkAliases,
+			WaitingFor:     waitingFor,
 		},
 		Started: true,
 	})
+	if err != nil && container != nil {
+		require.NoError(t, container.Terminate(ctx))
+	}
+	require.NoError(t, err)
 
 	t.Cleanup(func() {
 		err = container.Terminate(ctx)
@@ -63,7 +116,6 @@ func setUpContainer(t *testing.T, options testContainerOptions) *Client {
 			log.Fatalf("failed to terminate container: %v", err)
 		}
 	})
-	require.NoError(t, err)
 
 	apiURL, err := container.Endpoint(ctx, "http")
 	require.NoError(t, err)
