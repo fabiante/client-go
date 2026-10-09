@@ -117,7 +117,8 @@ func setUpContainer(t *testing.T, options testContainerOptions) *Client {
 		}
 	})
 
-	apiURL, err := container.Endpoint(ctx, "http")
+	// Select the API port explicitly instead of an arbitrary exposed port.
+	apiURL, err := container.PortEndpoint(ctx, "8080/tcp", "http")
 	require.NoError(t, err)
 
 	client, err := NewClient(apiURL)
