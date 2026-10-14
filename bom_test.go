@@ -16,6 +16,8 @@ func TestBOMService_Upload(t *testing.T) {
 		},
 	})
 
+	// Some test change to trigger CI
+
 	_, err := client.BOM.Upload(context.Background(), BOMUploadRequest{
 		ProjectName:    "acme-app",
 		ProjectVersion: "1.2.3",
