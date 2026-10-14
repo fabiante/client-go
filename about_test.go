@@ -60,6 +60,10 @@ func setUpContainer(t *testing.T, options testContainerOptions) *Client {
 		version = options.Version
 	}
 
+	// Force usage of v5 - This tests if tests are okay to run on v5 or will eventually break in December.
+	version = "5.2.0"
+	options.UsePostgres = true
+
 	// Latest tag points to v5, which requires a Postgres container.
 	if version == "latest" {
 		options.UsePostgres = true
